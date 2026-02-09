@@ -92,11 +92,30 @@ jobs:
           SECURITY_LEVEL: ${{ matrix.level }} 
         with:
           target: 'http://localhost:80/'
-          cmd_options: '-r zap_report_${{ matrix.level }}.html -J zap_report_${{ matrix.level }}.json --hook zap_hooks.py -d -j'
+          cmd_options: '--hook zap_hooks.py -d -j'
         continue-on-error: true
 
       # ----------------------------------------------------------------
-      # KROK G: Zbieranie Danych (Artifact Upload)
+      # KROK G: Zmiana nazw i przeniesienie raportów
+      # ----------------------------------------------------------------
+      - name: Rename and Move ZAP Reports
+        run: |
+          if [ -f report_html.html ]; then
+            mv report_html.html reports/zap_report_${{ matrix.level }}.html
+            echo "Raport HTML przeniesiony."
+          else
+            echo "WARNING: Nie znaleziono report_html.html"
+          fi
+
+          if [ -f report_json.json ]; then
+            mv report_json.json reports/zap_report_${{ matrix.level }}.json
+            echo "Raport JSON przeniesiony."
+          else
+            echo "WARNING: Nie znaleziono report_json.json"
+          fi
+
+      # ----------------------------------------------------------------
+      # KROK H: Zbieranie Danych (Artifact Upload)
       # ----------------------------------------------------------------
       - name: Upload Research Data
         uses: actions/upload-artifact@v4
