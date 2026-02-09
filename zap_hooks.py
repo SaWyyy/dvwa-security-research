@@ -5,104 +5,116 @@ import sys
 from urllib.parse import urlparse
 
 def zap_started(zap, target):
+    # ------------------------------------------------------------------
+    # KROK 0: Odczyt konfiguracji (plik lub ENV)
+    # ------------------------------------------------------------------
     try:
-        # Plik będzie w katalogu /zap/wrk/ (zmapowanym z workspace)
         with open('/zap/wrk/security_level.txt', 'r') as f:
             target_level = f.read().strip()
     except FileNotFoundError:
-        # Fallback, jeśli plik nie istnieje (np. testy lokalne)
         target_level = os.environ.get('SECURITY_LEVEL', 'low')
         
     print(f"--- [HOOK] Cel: Ustawienie poziomu bezpieczeństwa na: {target_level.upper()} ---")
 
     try:
         zap_url = zap.base
-        print(f"[HOOK] ZAP raportuje swój adres jako: {zap_url}")
-        
-        parsed_url = urlparse(zap_url)
-        port = parsed_url.port
-        
-        if not port:
-            port = 80
-            
+        parsed = urlparse(zap_url)
+        port = parsed.port if parsed.port else 80
         proxy_url = f"http://127.0.0.1:{port}"
-        print(f"[HOOK] Skonstruowano działający adres proxy: {proxy_url}")
-        
+        print(f"[HOOK] Proxy ZAP: {proxy_url}")
     except Exception as e:
-        print(f"[HOOK] FATAL ERROR: Nie udało się ustalić portu ZAP: {e}")
+        print(f"[HOOK] ERROR: Nie udało się ustalić proxy: {e}")
         sys.exit(1)
 
-    proxies = {
-        'http': proxy_url,
-        'https': proxy_url
-    }
-
-    # Używamy sesji
+    proxies = {'http': proxy_url, 'https': proxy_url}
+    
     s = requests.Session()
     s.proxies.update(proxies)
     s.verify = False 
 
     # ------------------------------------------------------------------
-    # KROK 1: Pobranie tokena CSRF
+    # KROK 1: Logowanie i zdobycie ciasteczka PHPSESSID
     # ------------------------------------------------------------------
-    print("[HOOK] Krok 1: Pobieranie strony logowania...")
+    print("[HOOK] Krok 1: Pobieranie tokena i logowanie...")
     login_url = target + 'login.php'
     
     try:
-        # Timeout ważny, żeby nie wisiało w nieskończoność
-        res = s.get(login_url, timeout=10)
+        res_get = s.get(login_url, timeout=10)
+        token_match = re.search(r"name='user_token' value='([a-f0-9]+)'", res_get.text)
+        
+        if not token_match:
+            print("[HOOK] FATAL: Nie znaleziono tokena CSRF na stronie logowania.")
+            return
+
+        user_token = token_match.group(1)
+        
+        login_data = {
+            'username': 'admin',
+            'password': 'password',
+            'Login': 'Login',
+            'user_token': user_token
+        }
+        res_post = s.post(login_url, data=login_data)
+        
+        if "Location" in res_post.history or "Welcome" in res_post.text:
+            print("[HOOK] Logowanie w Pythonie: SUKCES")
+        else:
+            print("[HOOK] OSTRZEŻENIE: Logowanie w Pythonie mogło się nie udać.")
+
     except Exception as e:
-        print(f"[HOOK] ERROR: Połączenie przez proxy nieudane: {e}")
+        print(f"[HOOK] Błąd podczas logowania: {e}")
         return
 
-    token_match = re.search(r"name='user_token' value='([a-f0-9]+)'", res.text)
-    if not token_match:
-        print("[HOOK] ERROR: Brak tokena logowania w HTML. DVWA nie odpowiada poprawnie.")
-        # Wypisz kawałek odpowiedzi do debugowania
-        print(f"[DEBUG] Fragment HTML: {res.text[:200]}")
+    phpsessid = s.cookies.get('PHPSESSID')
+    if not phpsessid:
+        print("[HOOK] FATAL: Brak ciasteczka PHPSESSID po logowaniu!")
         return
-    user_token = token_match.group(1)
-    print(f"[HOOK] Znaleziono token logowania: {user_token}")
+        
+    print(f"[HOOK] Zdobyto PHPSESSID: {phpsessid}")
 
     # ------------------------------------------------------------------
-    # KROK 2: Logowanie (POST)
+    # KROK 2: Zmiana poziomu (dla pewności przez POST)
     # ------------------------------------------------------------------
-    print("[HOOK] Krok 2: Logowanie...")
-    login_payload = {
-        'username': 'admin',
-        'password': 'password',
-        'Login': 'Login',
-        'user_token': user_token
-    }
-    
-    res_login = s.post(login_url, data=login_payload)
-    
-    if "Location" in res_login.history or "Welcome" in res_login.text:
-         print("[HOOK] Logowanie wygląda na poprawne.")
-    else:
-         print("[HOOK] OSTRZEŻENIE: Nie widzę potwierdzenia zalogowania.")
-
-    # ------------------------------------------------------------------
-    # KROK 3: Zmiana poziomu Security (POST)
-    # ------------------------------------------------------------------
-    print(f"[HOOK] Krok 3: Zmiana poziomu na {target_level}...")
+    print(f"[HOOK] Krok 2: Ustawianie poziomu {target_level}...")
     security_url = target + 'security.php'
     
-    res_sec_page = s.get(security_url)
-    token_match_sec = re.search(r"name='user_token' value='([a-f0-9]+)'", res_sec_page.text)
-    
-    if token_match_sec:
-        sec_token = token_match_sec.group(1)
+    try:
+        res_sec = s.get(security_url)
+        token_match_sec = re.search(r"name='user_token' value='([a-f0-9]+)'", res_sec.text)
         
-        sec_payload = {
-            'security': target_level,
-            'seclev_submit': 'Submit',
-            'user_token': sec_token
-        }
-        
-        s.post(security_url, data=sec_payload)
-        print(f"[HOOK] SUKCES: Wysłano żądanie zmiany poziomu na {target_level}.")
-    else:
-        print("[HOOK] ERROR: Nie udało się pobrać tokena dla strony security.")
+        if token_match_sec:
+            sec_token = token_match_sec.group(1)
+            sec_data = {
+                'security': target_level,
+                'seclev_submit': 'Submit',
+                'user_token': sec_token
+            }
+            s.post(security_url, data=sec_data)
+            print(f"[HOOK] Wysłano żądanie zmiany poziomu.")
+        else:
+            print("[HOOK] Nie udało się pobrać tokena dla security.php (może już jesteśmy wylogowani?)")
+            
+    except Exception as e:
+        print(f"[HOOK] Błąd przy zmianie poziomu: {e}")
 
+    # ------------------------------------------------------------------
+    # KROK 3: PRZEKAZANIE SESJI DO ZAP (To jest "Game Changer")
+    # ------------------------------------------------------------------
+    cookie_value = f"PHPSESSID={phpsessid}; security={target_level}"
+    print(f"[HOOK] KONFIGURACJA ZAP: Wymuszam użycie ciasteczek: {cookie_value}")
+
+    try:
+        zap.replacer.remove_rule(description="Force Auth")
+    except:
+        pass
+
+    zap.replacer.add_rule(
+        description="Force Auth",
+        enabled=True,
+        matchtype="REQ_HEADER",
+        matchregex=False,
+        matchstring="Cookie",
+        replacement=cookie_value
+    )
+    
     print("--- [HOOK] Setup zakończony. ---")
