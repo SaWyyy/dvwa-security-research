@@ -1,0 +1,93 @@
+name: DevSecOps Research Pipeline
+
+on:
+  push:
+    branches: [ "main" ]
+  pull_request:
+    branches: [ "main" ]
+  workflow_dispatch:
+
+jobs:
+  security-analysis:
+    name: Run Security Tools
+    runs-on: ubuntu-latest
+    
+    steps:
+      # 1. Pobranie kodu
+      - name: Checkout code
+        uses: actions/checkout@v3
+
+      # ----------------------------------------------------------------
+      # KROK A: Secret Scanning (Gitleaks)
+      # ----------------------------------------------------------------
+      - name: Secret Scanning (Gitleaks)
+        uses: gitleaks/gitleaks-action@v2
+        continue-on-error: true
+        with:
+          config-path: .gitleaks.toml
+        
+      # ----------------------------------------------------------------
+      # KROK B: IaC Scanning (Checkov)
+      # ----------------------------------------------------------------
+      - name: IaC Scanning (Checkov)
+        uses: bridgecrewio/checkov-action@master
+        with:
+          directory: .
+          framework: dockerfile,secrets
+          output_format: json 
+          output_file_path: reports/checkov_report.json
+        continue-on-error: true
+
+      # ----------------------------------------------------------------
+      # KROK C: SCA - Software Composition Analysis (Trivy)
+      # ----------------------------------------------------------------
+      - name: SCA Scanning (Trivy)
+        uses: aquasecurity/trivy-action@master
+        with:
+          scan-type: 'fs' # Skanujemy system plików
+          format: 'json'
+          output: 'reports/trivy_report.json'
+          severity: 'CRITICAL,HIGH'
+        continue-on-error: true
+
+      # ----------------------------------------------------------------
+      # KROK D: SAST - Static Application Security Testing (Semgrep)
+      # ----------------------------------------------------------------
+      - name: SAST Scanning (Semgrep)
+        run: |
+          mkdir -p reports
+          # Instalacja i uruchomienie Semgrep w trybie CLI (JSON output)
+          python3 -m pip install semgrep
+          semgrep scan --config=p/php --json --output=reports/semgrep_report.json .
+        continue-on-error: true
+
+      # ----------------------------------------------------------------
+      # KROK E: Uruchomienie aplikacji do testów dynamicznych
+      # ----------------------------------------------------------------
+      - name: Start DVWA Environment
+        run: |
+          docker-compose up -d
+          echo "Czekam na start aplikacji..."
+          sleep 30 # Dajemy czas na start bazy danych i Apache
+
+      # ----------------------------------------------------------------
+      # KROK F: DAST - Dynamic Application Security Testing (OWASP ZAP)
+      # ----------------------------------------------------------------
+      - name: DAST Scanning (OWASP ZAP - Baseline)
+        uses: zaproxy/action-baseline@v0.9.0
+        with:
+          target: 'http://localhost:80'
+          cmd_options: '-J zap_report.json -r zap_report.html' 
+        continue-on-error: true
+
+      # ----------------------------------------------------------------
+      # KROK G: Zbieranie Danych (Artifact Upload)
+      # ----------------------------------------------------------------
+      - name: Upload Research Data
+        uses: actions/upload-artifact@v3
+        with:
+          name: security-reports
+          path: |
+            reports/
+            zap_report.json
+            zap_report.html
