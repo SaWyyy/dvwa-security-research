@@ -1,39 +1,30 @@
-volumes:
-  dvwa:
-
-
-networks:
-  dvwa:
-
-
 services:
   dvwa:
-    build: .
-    image: ghcr.io/digininja/dvwa:latest
-    # Change `always` to `build` to build from local source
-    pull_policy: always
+    build: .              
+    container_name: dvwa
+    restart: always
+    ports:
+      - "80:80"
     environment:
       - DB_SERVER=db
+      - DB_DATABASE=dvwa
+      - DB_USER=dvwa
+      - DB_PASSWORD=password
+      - DEFAULT_SECURITY_LEVEL=low
     depends_on:
       - db
-    # Uncomment the next 2 lines to serve local source
-    # volumes:
-    #   - ./:/var/www/html
-    networks:
-      - dvwa
-    ports:
-      - 127.0.0.1:4280:80
-    restart: unless-stopped
 
   db:
-    image: docker.io/library/mariadb:10
+    image: mariadb:10
+    container_name: dvwa-db
+    restart: always
     environment:
-      - MYSQL_ROOT_PASSWORD=dvwa
       - MYSQL_DATABASE=dvwa
       - MYSQL_USER=dvwa
-      - MYSQL_PASSWORD=p@ssw0rd
+      - MYSQL_PASSWORD=password
+      - MYSQL_ROOT_PASSWORD=password
     volumes:
-      - dvwa:/var/lib/mysql
-    networks:
-      - dvwa
-    restart: unless-stopped
+      - db_data:/var/lib/mysql
+
+volumes:
+  db_data:
