@@ -2,7 +2,6 @@ import re
 import os
 import requests
 import sys
-from urllib.parse import urlparse
 
 def zap_started(zap, target):
     # KROK 0: Konfiguracja
@@ -14,32 +13,14 @@ def zap_started(zap, target):
         
     print(f"--- [HOOK] Cel: Ustawienie poziomu bezpieczeństwa na: {target_level.upper()} ---")
 
-    # Ustalanie adresu proxy ZAP (potrzebne tylko do konfiguracji API na końcu)
-    try:
-        zap_url = zap.base
-        parsed = urlparse(zap_url)
-        port = parsed.port if parsed.port else 80
-        # Adres API ZAP-a
-        zap_proxy_url = f"http://127.0.0.1:{port}"
-    except:
-        zap_proxy_url = "http://127.0.0.1:8080"
-
     # ------------------------------------------------------------------
-    # POPRAWKA GLÓWNA: Logowanie BEZ PROXY (Direct Connection)
+    # KROK 1: Logowanie BEZPOSREDNIE (Bypass ZAP)
     # ------------------------------------------------------------------
-    # Zachowujemy się dokładnie tak jak setup_db.py, który działał.
-    # Omijamy ZAP-a w fazie logowania, żeby nie gubić ciasteczek.
+    # To działa, więc tego nie ruszamy!
     s = requests.Session()
-    s.trust_env = False # Ignoruj zmienne systemowe proxy
-    s.proxies = {}      # Pusty słownik proxy = połączenie bezpośrednie
+    s.trust_env = False 
+    s.proxies = {}      
     
-    # Target w Dockerze to localhost (dzięki --network=host)
-    # Upewniamy się, że używamy tego samego hosta co w setup_db.py
-    if "localhost" not in target and "127.0.0.1" not in target:
-        # Jeśli target jest dziwny, zostawiamy go, ale dla pewności:
-        print(f"[HOOK] Target to: {target}")
-
-    # KROK 1: Logowanie
     print("[HOOK] Krok 1: Logowanie BEZPOSREDNIE (Bypass ZAP)...")
     login_url = target + 'login.php'
     
@@ -67,15 +48,10 @@ def zap_started(zap, target):
             'User-Agent': 'ZAP-Hook-Agent'
         }
         
-        # Logujemy się
         res_post = s.post(login_url, data=login_data, headers=headers, allow_redirects=True)
         
-        # Weryfikacja
         if "login.php" in res_post.url:
             print(f"[HOOK] ERROR: Logowanie nieudane. Zostalismy na {res_post.url}")
-            # Mały debug
-            if "Login failed" in res_post.text: print("   -> Bledne haslo/login")
-            if "CSRF" in res_post.text: print("   -> Blad CSRF")
         else:
             print(f"[HOOK] Logowanie SUKCES! (Jesteśmy na {res_post.url})")
 
@@ -92,7 +68,7 @@ def zap_started(zap, target):
     if phpsessid:
         print(f"[HOOK] Zdobyto PHPSESSID: {phpsessid}")
     else:
-        print("[HOOK] FATAL: Brak ciasteczka PHPSESSID! (Logowanie nie utworzylo sesji?)")
+        print("[HOOK] FATAL: Brak ciasteczka PHPSESSID!")
 
     # KROK 2: Zmiana poziomu (Też bezpośrednio)
     print(f"[HOOK] Krok 2: Ustawianie poziomu {target_level}...")
@@ -113,36 +89,33 @@ def zap_started(zap, target):
     except Exception as e:
         print(f"[HOOK] Blad zmiany poziomu: {e}")
 
-    # KROK 3: Przekazanie sesji do ZAP
-    # Teraz łączymy się z API ZAP-a, żeby przekazać mu to ciasteczko, które zdobyliśmy bezpośrednio
+    # ------------------------------------------------------------------
+    # KROK 3: Przekazanie sesji do ZAP (POPRAWIONE)
+    # ------------------------------------------------------------------
+    # Zamiast requests.get i zgadywania portu, używamy obiektu `zap`
     if phpsessid:
         cookie_value = f"PHPSESSID={phpsessid}; security={target_level}"
         print(f"[HOOK] KONFIGURACJA ZAP: Wstrzykuje ciasteczka: {cookie_value}")
 
-        # Uwaga: Tutaj musimy użyć proxy/API ZAP-a, więc nie używamy naszej sesji 's' (która jest direct)
-        # tylko prostego requests.get do API
         try:
-            # Usuwamy stare reguły
-            requests.get(f"{zap_proxy_url}/JSON/replacer/action/removeRule/?description=Force+Auth")
-            
-            # Dodajemy nową regułę
-            # Musimy zakodować parametry URL, ale requests zrobi to za nas w params
-            params = {
-                'description': 'Force Auth',
-                'enabled': 'True',
-                'matchType': 'REQ_HEADER',
-                'matchRegex': 'False',
-                'matchString': 'Cookie',
-                'replacement': cookie_value
-            }
-            res_api = requests.get(f"{zap_proxy_url}/JSON/replacer/action/addRule/", params=params)
-            
-            if res_api.status_code == 200:
-                print("[HOOK] ZAP API: Reguła Replacer dodana pomyslnie.")
-            else:
-                print(f"[HOOK] ZAP API Error: {res_api.text}")
-                
+            # Usuwamy stare reguły (ignorujemy błąd jeśli reguły brak)
+            zap.replacer.remove_rule(description="Force Auth")
+        except:
+            pass
+
+        try:
+            # Dodajemy nową regułę używając wbudowanego klienta ZAP
+            # To automatycznie użyje dobrego portu i API key
+            res = zap.replacer.add_rule(
+                description="Force Auth",
+                enabled="true",
+                matchtype="REQ_HEADER",
+                matchregex="false",
+                matchstring="Cookie",
+                replacement=cookie_value
+            )
+            print(f"[HOOK] ZAP API Sukces: Reguła dodana.")
         except Exception as e:
-            print(f"[HOOK] Nie udalo sie skonfigurowac ZAP API: {e}")
+            print(f"[HOOK] ZAP API Error: {e}")
     
     print("--- [HOOK] Setup zakończony. ---")
