@@ -54,23 +54,30 @@ def zap_started(zap, target):
             'Login': 'Login',
             'user_token': user_token
         }
-        res_post = s.post(login_url, data=login_data)
         
-        if "Location" in res_post.history or "Welcome" in res_post.text:
-            print("[HOOK] Logowanie w Pythonie: SUKCES")
+        res_post = s.post(login_url, data=login_data, allow_redirects=True)
+        
+        if "login.php" in res_post.url:
+            print(f"[HOOK] OSTRZEŻENIE: Wciąż jesteśmy na {res_post.url}. Logowanie mogło się nie udać.")
         else:
-            print("[HOOK] OSTRZEŻENIE: Logowanie w Pythonie mogło się nie udać.")
+            print(f"[HOOK] Logowanie w Pythonie: SUKCES (Jesteśmy na {res_post.url})")
 
     except Exception as e:
-        print(f"[HOOK] Błąd podczas logowania: {e}")
+        print(f"[HOOK] Błąd sieciowy podczas logowania: {e}")
         return
 
-    phpsessid = s.cookies.get('PHPSESSID')
+    # ------------------------------------------------------------------
+    # NAPRAWA BŁĘDU CookieConflictError
+    # ------------------------------------------------------------------
+    phpsessid = None
+    for cookie in s.cookies:
+        if cookie.name == 'PHPSESSID':
+            phpsessid = cookie.value
+    
     if not phpsessid:
         print("[HOOK] FATAL: Brak ciasteczka PHPSESSID po logowaniu!")
-        return
-        
-    print(f"[HOOK] Zdobyto PHPSESSID: {phpsessid}")
+    else:
+        print(f"[HOOK] Zdobyto PHPSESSID: {phpsessid}")
 
     # ------------------------------------------------------------------
     # KROK 2: Zmiana poziomu (dla pewności przez POST)
@@ -89,32 +96,34 @@ def zap_started(zap, target):
                 'seclev_submit': 'Submit',
                 'user_token': sec_token
             }
-            s.post(security_url, data=sec_data)
-            print(f"[HOOK] Wysłano żądanie zmiany poziomu.")
+            res_change = s.post(security_url, data=sec_data)
+            if res_change.status_code == 200:
+                print(f"[HOOK] Wysłano żądanie zmiany poziomu.")
         else:
-            print("[HOOK] Nie udało się pobrać tokena dla security.php (może już jesteśmy wylogowani?)")
+            print("[HOOK] Nie udało się pobrać tokena dla security.php (może brak autoryzacji?)")
             
     except Exception as e:
         print(f"[HOOK] Błąd przy zmianie poziomu: {e}")
 
     # ------------------------------------------------------------------
-    # KROK 3: PRZEKAZANIE SESJI DO ZAP (To jest "Game Changer")
+    # KROK 3: PRZEKAZANIE SESJI DO ZAP
     # ------------------------------------------------------------------
-    cookie_value = f"PHPSESSID={phpsessid}; security={target_level}"
-    print(f"[HOOK] KONFIGURACJA ZAP: Wymuszam użycie ciasteczek: {cookie_value}")
+    if phpsessid:
+        cookie_value = f"PHPSESSID={phpsessid}; security={target_level}"
+        print(f"[HOOK] KONFIGURACJA ZAP: Wymuszam ciasteczka: {cookie_value}")
 
-    try:
-        zap.replacer.remove_rule(description="Force Auth")
-    except:
-        pass
+        try:
+            zap.replacer.remove_rule(description="Force Auth")
+        except:
+            pass
 
-    zap.replacer.add_rule(
-        description="Force Auth",
-        enabled=True,
-        matchtype="REQ_HEADER",
-        matchregex=False,
-        matchstring="Cookie",
-        replacement=cookie_value
-    )
+        zap.replacer.add_rule(
+            description="Force Auth",
+            enabled=True,
+            matchtype="REQ_HEADER",
+            matchregex=False,
+            matchstring="Cookie",
+            replacement=cookie_value
+        )
     
     print("--- [HOOK] Setup zakończony. ---")
