@@ -92,6 +92,7 @@ jobs:
           SECURITY_LEVEL: ${{ matrix.level }} 
         with:
           target: 'http://localhost:80/'
+          allow_issue_writing: false
           cmd_options: '--hook zap_hooks.py -d -j'
         continue-on-error: true
 
