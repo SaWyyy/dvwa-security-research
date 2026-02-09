@@ -76,7 +76,7 @@ jobs:
       # KROK E: Uruchomienie aplikacji do testów dynamicznych
       # ----------------------------------------------------------------
       - name: Start DVWA Environment
-        run: docker-compose up -d --build
+        run: docker compose up -d --build
 
       - name: Initialize DVWA Database
         run: |
