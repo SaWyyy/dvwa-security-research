@@ -17,6 +17,12 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
 
+      # 2. Przygotowanie katalogu na raporty
+      - name: Prepare Report Directory
+        run: |
+          mkdir -p reports
+          chmod 777 reports
+
       # ----------------------------------------------------------------
       # KROK A: Secret Scanning (Gitleaks)
       # ----------------------------------------------------------------
@@ -66,7 +72,7 @@ jobs:
       # ----------------------------------------------------------------
       - name: Start DVWA Environment
         run: |
-          docker-compose up -d
+          docker compose up -d
           echo "Czekam na start aplikacji..."
           sleep 30 # Dajemy czas na start bazy danych i Apache
 
