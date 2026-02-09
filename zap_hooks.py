@@ -5,8 +5,14 @@ import sys
 from urllib.parse import urlparse
 
 def zap_started(zap, target):
-    # Pobieramy poziom z ENV
-    target_level = os.environ.get('SECURITY_LEVEL', 'low')
+    try:
+        # Plik będzie w katalogu /zap/wrk/ (zmapowanym z workspace)
+        with open('/zap/wrk/security_level.txt', 'r') as f:
+            target_level = f.read().strip()
+    except FileNotFoundError:
+        # Fallback, jeśli plik nie istnieje (np. testy lokalne)
+        target_level = os.environ.get('SECURITY_LEVEL', 'low')
+        
     print(f"--- [HOOK] Cel: Ustawienie poziomu bezpieczeństwa na: {target_level.upper()} ---")
 
     try:

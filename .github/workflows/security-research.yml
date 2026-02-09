@@ -84,7 +84,13 @@ jobs:
           curl -s -X POST -d "create_db=Create+%2F+Reset+Database" http://localhost:80/setup.php
 
       # ----------------------------------------------------------------
-      # KROK F: DAST - Dynamic Application Security Testing (OWASP ZAP)
+      # KROK F: Przekazanie poziomu do pliku (dla Dockera)
+      # ----------------------------------------------------------------
+      - name: Create Config File for ZAP Hook
+        run: echo "${{ matrix.level }}" > security_level.txt
+
+      # ----------------------------------------------------------------
+      # KROK G: DAST - Dynamic Application Security Testing (OWASP ZAP)
       # ----------------------------------------------------------------
       - name: DAST Scanning (${{ matrix.level }})
         uses: zaproxy/action-full-scan@v0.12.0
@@ -97,7 +103,7 @@ jobs:
         continue-on-error: true
 
       # ----------------------------------------------------------------
-      # KROK G: Zmiana nazw i przeniesienie raportów
+      # KROK H: Zmiana nazw i przeniesienie raportów
       # ----------------------------------------------------------------
       - name: Rename and Move ZAP Reports
         run: |
@@ -116,7 +122,7 @@ jobs:
           fi
 
       # ----------------------------------------------------------------
-      # KROK H: Zbieranie Danych (Artifact Upload)
+      # KROK I: Zbieranie Danych (Artifact Upload)
       # ----------------------------------------------------------------
       - name: Upload Research Data
         uses: actions/upload-artifact@v4
