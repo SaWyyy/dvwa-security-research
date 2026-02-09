@@ -15,7 +15,7 @@ jobs:
     steps:
       # 1. Pobranie kodu
       - name: Checkout code
-        uses: actions/checkout@v3
+        uses: actions/checkout@v4
 
       # ----------------------------------------------------------------
       # KROK A: Secret Scanning (Gitleaks)
@@ -84,7 +84,7 @@ jobs:
       # KROK G: Zbieranie Danych (Artifact Upload)
       # ----------------------------------------------------------------
       - name: Upload Research Data
-        uses: actions/upload-artifact@v3
+        uses: actions/upload-artifact@v4
         with:
           name: security-reports
           path: |
