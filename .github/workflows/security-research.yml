@@ -80,8 +80,10 @@ jobs:
 
       - name: Initialize DVWA Database
         run: |
-          sleep 15
-          curl -s -X POST -d "create_db=Create+%2F+Reset+Database" http://localhost:80/setup.php
+          sleep 30
+          curl -s -X POST -d "create_db=Create+%2F+Reset+Database" "http://localhost:80/setup.php"
+          HTTP_STATUS=$(curl -s -o /dev/null -w "%{http_code}" http://localhost:80/login.php)
+          echo "Status strony logowania: $HTTP_STATUS"
 
       # ----------------------------------------------------------------
       # KROK F: Przekazanie poziomu do pliku (dla Dockera)
@@ -124,9 +126,10 @@ jobs:
       # ----------------------------------------------------------------
       # KROK I: Zbieranie Danych (Artifact Upload)
       # ----------------------------------------------------------------
-      - name: Upload Research Data
+      - name: Upload Research Data (${{ matrix.level }})
         uses: actions/upload-artifact@v4
+        if: always()
         with:
-          name: security-reports-${{ matrix.level }}
-          path: |
-            reports/
+          name: "security-reports-${{ matrix.level }}"
+          path: reports/
+          overwrite: true
