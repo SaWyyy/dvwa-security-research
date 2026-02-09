@@ -9,9 +9,13 @@ on:
 
 jobs:
   security-analysis:
-    name: Run Security Tools
+    name: Run Security Tools - ${{ matrix.level }}
     runs-on: ubuntu-latest
-    
+    strategy:
+      fail-fast: false
+      matrix:
+        level: [low, medium, high, impossible]    
+
     steps:
       # 1. Pobranie kodu
       - name: Checkout code
@@ -72,19 +76,23 @@ jobs:
       # KROK E: Uruchomienie aplikacji do testów dynamicznych
       # ----------------------------------------------------------------
       - name: Start DVWA Environment
+        run: docker-compose up -d --build
+
+      - name: Initialize DVWA Database
         run: |
-          docker compose up -d
-          echo "Czekam na start aplikacji..."
-          sleep 30 # Dajemy czas na start bazy danych i Apache
+          sleep 15
+          curl -s -X POST -d "create_db=Create+%2F+Reset+Database" http://localhost:80/setup.php
 
       # ----------------------------------------------------------------
       # KROK F: DAST - Dynamic Application Security Testing (OWASP ZAP)
       # ----------------------------------------------------------------
-      - name: DAST Scanning (OWASP ZAP - Baseline)
+      - name: DAST Scanning (${{ matrix.level }})
         uses: zaproxy/action-full-scan@v0.12.0
+        env:
+          SECURITY_LEVEL: ${{ matrix.level }} 
         with:
-          target: 'http://localhost:80'
-          cmd_options: '-r zap_report.html -J zap_report.json --hook zap_hooks.py -d -j'        
+          target: 'http://localhost:80/'
+          cmd_options: '-r zap_report_${{ matrix.level }}.html -J zap_report_${{ matrix.level }}.json --hook zap_hooks.py -d -j'
         continue-on-error: true
 
       # ----------------------------------------------------------------
